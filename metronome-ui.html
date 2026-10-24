@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#ffffff">
+  <title>Metronome — static frontend</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --paper: #ffffff;
+      --ink: #171819;
+      --muted: #76797d;
+      --line: #e5e7e9;
+      --accent: #ff4f00;
+      --tint: #fff1e9;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--paper); color: var(--ink); }
+    button, input { font: inherit; color: inherit; }
+    button { border: 0; background: none; padding: 0; cursor: default; -webkit-tap-highlight-color: transparent; }
+    button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 6px; }
+    svg { display: block; }
+    .metronome {
+      width: min(100%, 480px); margin-inline: auto; min-height: 100svh;
+      padding: max(30px, env(safe-area-inset-top)) 30px max(26px, env(safe-area-inset-bottom));
+      display: flex; flex-direction: column;
+    }
+    .masthead { text-align: center; }
+    .wordmark { margin: 0; font-size: 10px; font-weight: 600; letter-spacing: .28em; color: var(--muted); }
+    .instrument { flex: 1; display: flex; flex-direction: column; justify-content: center; padding-block: 56px 70px; }
+    .tempo-row { display: grid; grid-template-columns: 76px minmax(0, 1fr) 76px; align-items: center; }
+    .tempo-display { display: flex; flex-direction: column; align-items: center; }
+    .tempo-number {
+      display: block; font-size: clamp(80px, 26vw, 132px); line-height: 1;
+      font-weight: 400; letter-spacing: -.065em; font-variant-numeric: tabular-nums;
+      padding-right: .065em;
+    }
+    .tempo-unit { margin-top: 15px; font-size: 10px; font-weight: 500; letter-spacing: .2em; color: var(--muted); }
+    .adjust-wrap { position: relative; }
+    .adjust { width: 76px; height: 88px; display: grid; place-items: center; color: #85888c; background: transparent; }
+    .adjust svg { width: 52px; height: 52px; stroke-width: 2.8; }
+    .slider { position: relative; height: 44px; margin-top: 33px; display: flex; align-items: center; }
+    .slider-track { width: 100%; height: 3px; background: var(--line); border-radius: 2px; }
+    .slider-fill { width: 20.5263%; height: 100%; background: var(--accent); }
+    .slider-thumb { position: absolute; left: 20.5263%; transform: translateX(-50%); width: 20px; height: 20px; border-radius: 50%; background: var(--accent); }
+    .play { width: 160px; height: 160px; border-radius: 50%; background: var(--accent); color: var(--paper); display: grid; place-items: center; margin: 38px auto 0; }
+    .play svg { width: 46px; height: 46px; margin-left: 6px; }
+    .stop-symbol { display: none; }
+    .footer { display: flex; justify-content: space-between; align-items: center; gap: 24px; }
+    .timer { min-width: 72px; min-height: 64px; display: flex; align-items: center; gap: 10px; text-align: left; }
+    .timer svg { width: 23px; height: 23px; color: var(--accent); }
+    .timer-copy { display: flex; flex-direction: column; gap: 5px; }
+    .timer-label { font-size: 12px; font-weight: 500; }
+    .timer-value { font-size: 11px; color: var(--muted); }
+    .tap { width: 136px; height: 64px; background: #f4f5f6; border: 1px solid transparent; border-radius: 32px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; }
+    .tap-title { font-size: 13px; font-weight: 600; letter-spacing: .12em; }
+    .tap-subtitle { font-size: 10px; color: var(--muted); }
+    /* Static alternative states. Change body[data-view] to inspect; no JS or interactions.
+       idle | steps-plus | steps-minus | timer | playing
+       Muse: replace state attributes with your existing state, preserve your audio engine.
+       Attach BPM editing to .tempo-display; tempo changes to .adjust and .step-choice;
+       slider pointer/keyboard behavior to .slider; playback to .play;
+       timer opening to .timer and tap tempo pointerdown to .tap.
+       The slider is deliberately presentational; aria-disabled signals this prototype.
+    */
+    .step-menu { display: none; position: absolute; top: calc(100% + 4px); left: 50%; transform: translateX(-50%); z-index: 2; padding: 5px; background: var(--ink); color: var(--paper); border-radius: 24px; }
+    .step-choice { display: block; width: 44px; height: 40px; font-size: 12px; font-variant-numeric: tabular-nums; }
+    .step-choice + .step-choice { border-top: 1px solid #ffffff20; }
+    body[data-view="steps-plus"] .plus .step-menu,
+    body[data-view="steps-minus"] .minus .step-menu { display: block; }
+    body[data-view="playing"] .play-symbol { display: none; }
+    body[data-view="playing"] .stop-symbol { display: block; margin: 0; }
+    .modal-overlay { display: none; position: fixed; inset: 0; z-index: 10; background: #17181945; padding: 24px; align-items: center; justify-content: center; }
+    body[data-view="timer"] .modal-overlay { display: flex; }
+    .modal { width: min(100%, 340px); background: var(--paper); border-radius: 26px; padding: 28px; }
+    .modal-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .modal h2 { margin: 0; font-size: 20px; font-weight: 500; letter-spacing: -.035em; }
+    .close { width: 44px; height: 44px; margin: -10px -10px -10px 0; display: grid; place-items: center; color: var(--muted); }
+    .close svg { width: 18px; height: 18px; }
+    .modal p { margin: 14px 0 28px; color: var(--muted); font-size: 13px; line-height: 1.6; }
+    .minutes-field { display: flex; align-items: baseline; justify-content: center; gap: 12px; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
+    .minutes-field input { background: transparent; border: 0; width: 2.4ch; padding: 0; text-align: center; font-size: 64px; font-weight: 300; letter-spacing: -.06em; border-radius: 0; }
+    .minutes-field label { font-size: 13px; color: var(--muted); }
+    .set-timer { width: 100%; height: 48px; background: var(--accent); color: var(--paper); border-radius: 24px; font-size: 13px; font-weight: 500; margin-top: 24px; }
+    .remove-timer { display: block; min-height: 44px; margin: 8px auto -8px; font-size: 12px; color: var(--muted); }
+    @media (min-width: 700px) {
+      .metronome { min-height: min(880px, 100svh); padding-top: 48px; padding-bottom: 40px; }
+      .instrument { padding-block: 80px; }
+    }
+    @media (max-width: 359px) {
+      .metronome { padding-inline: 20px; }
+      .tempo-row { grid-template-columns: 68px minmax(0, 1fr) 68px; }
+      .adjust { width: 68px; }
+    }
+    @media (max-height: 580px) {
+      .metronome { padding-top: 22px; }
+      .instrument { padding-block: 30px; }
+      .tempo-number { font-size: 92px; }
+      .slider { margin-top: 20px; }
+      .play { width: 124px; height: 124px; margin-top: 20px; }
+    }
+  </style>
+</head>
+<body data-view="idle">
+  <main class="metronome" aria-label="Metronome static design">
+    <header class="masthead"><h1 class="wordmark">METRONOME</h1></header>
+    <section class="instrument" aria-label="Tempo controls">
+      <div class="tempo-row">
+        <div class="adjust-wrap minus">
+          <button type="button" class="adjust" aria-label="Decrease tempo. Hold for larger steps.">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M3 12h18"/></svg>
+          </button>
+          <div class="step-menu" aria-label="Decrease tempo options"><button type="button" class="step-choice">−2</button><button type="button" class="step-choice">−5</button><button type="button" class="step-choice">−10</button></div>
+        </div>
+        <button type="button" class="tempo-display" aria-label="Tempo 98 beats per minute. Edit tempo."><span class="tempo-number">98</span><span class="tempo-unit">BPM</span></button>
+        <div class="adjust-wrap plus">
+          <button type="button" class="adjust" aria-label="Increase tempo. Hold for larger steps.">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M3 12h18M12 3v18"/></svg>
+          </button>
+          <div class="step-menu" aria-label="Increase tempo options"><button type="button" class="step-choice">+2</button><button type="button" class="step-choice">+5</button><button type="button" class="step-choice">+10</button></div>
+        </div>
+      </div>
+      <div class="slider" role="slider" aria-label="Tempo" aria-valuemin="20" aria-valuemax="400" aria-valuenow="98" aria-disabled="true"><div class="slider-track"><div class="slider-fill"></div></div><span class="slider-thumb"></span></div>
+      <button type="button" class="play" aria-label="Start or stop metronome">
+        <svg class="play-symbol" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6.5 3.8a.8.8 0 0 1 1.2-.69l12.3 8.2a.8.8 0 0 1 0 1.38L7.7 20.9a.8.8 0 0 1-1.2-.69z"/></svg>
+        <svg class="stop-symbol" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
+      </button>
+    </section>
+    <footer class="footer">
+      <button type="button" class="timer" aria-label="Set practice timer">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M10 2h4M12 2v3M18.5 6.5l1.5-1.5M12 9v4l2.5 1.5"/></svg>
+        <span class="timer-copy"><span class="timer-label">Timer</span><span class="timer-value">No limit</span></span>
+      </button>
+      <button type="button" class="tap" aria-label="Tap tempo"><span class="tap-title">TAP</span><span class="tap-subtitle">to set tempo</span></button>
+    </footer>
+  </main>
+  <!-- Static modal reference. Not connected to the timer button. -->
+  <div class="modal-overlay">
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="timer-title" aria-describedby="timer-description">
+      <div class="modal-header"><h2 id="timer-title">Practice timer</h2><button type="button" class="close" aria-label="Close timer"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+      <p id="timer-description">A little time, just for practice.<br>The metronome stops when time is up.</p>
+      <div class="minutes-field"><input id="minutes" inputmode="numeric" value="5" readonly aria-label="Practice duration in minutes"><label for="minutes">minutes</label></div>
+      <button type="button" class="set-timer">Set timer</button><button type="button" class="remove-timer">No time limit</button>
+    </section>
+  </div>
+</body>
+</html>
